@@ -26,7 +26,7 @@ between features and the target variable.
 - R - data exploration, visualizations (ggplot2, corrplot)
 - Python - machine learning (scikit-learn, XGBoost)
 - reticulate - R/Python integration
-- **Quarto - report generation 
+- Quarto - report generation 
 
 # Key Finding
 
