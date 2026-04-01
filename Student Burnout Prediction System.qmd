@@ -1,0 +1,253 @@
+---
+title: "Can We Predict Student Burnout? — A Critical Look at Synthetic Data (R & Python)"
+author: "Damian Spodar"
+description: |
+  [GitHub](https://github.com/Dramian213) | [LinkedIn](https://www.linkedin.com/in/damian-spodar-1536a6302)
+format: 
+  html:
+    toc: true
+    code-fold: true
+    code-summary: "Code"
+engine: knitr
+editor: visual
+---
+
+```{r, warning=FALSE, message=FALSE, }
+library(reticulate)
+py_install(c("pandas==2.1.4", "scikit-learn", "seaborn", "xgboost"))
+```
+
+```{r, warning=FALSE, message=FALSE}
+library(dplyr)
+library(ggplot2)
+library(tidyverse)
+library(corrplot)
+```
+
+## Introduction
+
+Student burnout is becoming a serious problem that affects learning and mental health. This project aims to check whether we can predict burnout using simple factors like study time, sleep, stress, and class attendance.
+
+The analysis uses basic data exploration in **R** and machine learning models in **Python**, connected through the ***reticulate*** package.
+
+```{r}
+data <- read.csv("student_mental_health_burnout.csv")
+head_Data<- data.frame(head(data))
+head_Data
+```
+
+## Distribution of Burnout Levels
+
+The dataset contains three burnout categories: *Low, Medium, and High*. The distribution appears relatively balanced, which makes it suitable for classification tasks.
+
+```{r}
+ggplot(data = data, aes(x = burnout_level, fill = burnout_level)) +
+  geom_bar() +
+  theme_minimal() +
+  labs(title = "Distribution of Burnout Levels")
+```
+
+## Study Hours vs Burnout
+
+Boxplot analysis shows that daily study hours are very similar across all burnout levels, suggesting weak separation between classes.
+
+```{r}
+ggplot(data = data, aes(x = burnout_level, y = daily_study_hours, fill = burnout_level)) +
+  geom_boxplot() +
+  theme_classic() +
+  labs(title = "Study Hours vs Burnout")
+```
+
+## Sleep Patterns
+
+The density plots of sleep hours reveal high overlap between burnout groups, indicating that sleep alone is not a strong predictor.
+
+```{r}
+ggplot(data = data, aes(x = daily_sleep_hours, fill = burnout_level)) +
+  geom_density(alpha = 0.5) +
+  facet_wrap(~burnout_level) +
+  theme_minimal() +
+  labs(title = "Density of Sleep Hours by Burnout Level")
+```
+
+## Summary Statistics
+
+Aggregated statistics confirm that most numerical features (e.g., age, study hours, sleep) have **nearly identical mean values across burnout levels.**
+
+This suggests that the dataset lacks strong differentiating signals between classes, which may limit the effectiveness of predictive models.
+
+```{r, warning=FALSE}
+data %>%
+  group_by(burnout_level) %>%
+  summarise(across(where(is.numeric), mean, na.rm = TRUE))
+```
+
+```{r}
+data_numeric <- data %>%
+  mutate(
+    stress_num = case_when(
+      stress_level == "Low"    ~ 1,
+      stress_level == "Medium" ~ 2,
+      stress_level == "High"   ~ 3
+    ),
+    burnout_num = case_when(
+      burnout_level == "Low"    ~ 1,
+      burnout_level == "Medium" ~ 2,
+      burnout_level == "High"   ~ 3
+    )
+  ) %>%
+  select(daily_study_hours, daily_sleep_hours, stress_num,
+         anxiety_score, depression_score, attendance_percentage,
+         burnout_num)
+```
+
+## Correlation Analysis
+
+The **heatmap** below confirms **near-zero** **correlations** between all features
+and burnout level, providing quantitative evidence of the **dataset's
+lack of predictive signal.**
+
+```{r}
+corr_matrix <- cor(data_numeric, use = "complete.obs")
+
+corrplot(corr_matrix,
+         method = "color",
+         addCoef.col = "black",
+         number.cex = 0.7,
+         tl.cex = 0.8,
+         title = "Correlation Matrix",
+         mar = c(0,0,1,0))
+```
+
+## Predictive Modeling
+
+## Logistic Regression
+
+**Logistic Regression** was the first model applied to the burnout classification task. Before training, all features were **standardized** using **StandardScaler** to ensure that differences in scale between variables such as anxiety scores (1-10) and attendance percentage (0-100) would not bias the model. The target variable and the categorical stress level feature were encoded numerically using **LabelEncoder**. The dataset was split into **80% for training** and **20% for testing** with a fixed random seed to ensure reproducibility. Logistic Regression is a **linear model**, meaning it can only capture **linear relationships between features** and the target making it a useful baseline, but limited when patterns are more complex.
+
+```{python}
+import pandas as pd
+import numpy as np
+from sklearn.preprocessing import LabelEncoder, StandardScaler
+from sklearn.model_selection import train_test_split
+from sklearn.linear_model import LogisticRegression
+from sklearn.ensemble import RandomForestClassifier
+from xgboost import XGBClassifier
+from sklearn.metrics import accuracy_score, classification_report
+
+data = r.data
+Y = data['burnout_level']
+
+le_y = LabelEncoder()
+Y_encoded = le_y.fit_transform(Y)
+
+features = ['daily_study_hours', 'daily_sleep_hours','stress_level','anxiety_score', 'depression_score', 'attendance_percentage']
+
+X = data[features]
+
+le_stress = LabelEncoder()
+X_encoded = X.copy()
+X_encoded['stress_level'] = le_stress.fit_transform(X['stress_level'])
+
+
+X_train, X_test, y_train, y_test = train_test_split(X_encoded, Y_encoded, test_size=0.2, random_state=2026)
+
+scaler = StandardScaler()
+X_train_scaled = scaler.fit_transform(X_train)
+X_test_scaled  = scaler.transform(X_test)
+
+log_model = LogisticRegression(max_iter=1000)
+log_model.fit(X_train_scaled, y_train)
+
+y_pred_lr = log_model.predict(X_test_scaled)
+accuracy_lr = accuracy_score(y_test, y_pred_lr)
+
+print(f"Logistic Regression Accuracy: {accuracy_lr:.4f}")
+print("\nClassification Report:")
+print(classification_report(y_test, y_pred_lr, target_names=le_y.classes_))
+```
+
+## Random Forest
+
+**Random Forest** is an ensemble method that builds multiple decision trees on random subsets of the data and aggregates their predictions. Unlike Logistic Regression, it does not require feature scaling and is capable of capturing non-linear relationships. It was trained with **100 trees** and a fixed random seed. An additional advantage of Random Forest is its **ability to produce feature importance scores,** which indicate how much each variable contributed to the model's decisions providing interpretability even when predictive accuracy is low.
+
+```{python}
+rf_model = RandomForestClassifier(n_estimators=100, random_state=2026)
+rf_model.fit(X_train, y_train)
+
+y_pred_rf = rf_model.predict(X_test)
+accuracy_rf = accuracy_score(y_test, y_pred_rf)
+
+print(f"Random Forest Accuracy: {accuracy_rf:.4f}")
+print("\nClassification Report:")
+print(classification_report(y_test, y_pred_rf, target_names=le_y.classes_))
+
+# Eksport feature importance do R
+importance_df = pd.DataFrame({
+    "feature":    features,
+    "importance": rf_model.feature_importances_
+}).sort_values("importance", ascending=False)
+```
+
+## XGBoost
+
+**XGBoost** is a gradient boosting algorithm that **builds** **trees sequentially**, with each new tree correcting the errors of the previous one. It is widely considered one of the most powerful **classification algorithms** for tabular data and is often the top choice in machine learning competitions. It was configured with a multiclass **log-loss** evaluation metric and a fixed random seed.
+
+```{python}
+xgb_model = XGBClassifier(eval_metric='mlogloss', random_state=2026)
+xgb_model.fit(X_train, y_train)
+
+y_pred_xgb = xgb_model.predict(X_test)
+accuracy_xgb = accuracy_score(y_test, y_pred_xgb)
+
+print(f"XGBoost Accuracy: {accuracy_xgb:.4f}")
+print("\nClassification Report:")
+print(classification_report(y_test, y_pred_xgb, target_names=le_y.classes_))
+```
+
+```{python}
+results_df = pd.DataFrame([
+    {"model": "Logistic Regression", "accuracy": accuracy_lr},
+    {"model": "Random Forest",       "accuracy": accuracy_rf},
+    {"model": "XGBoost",             "accuracy": accuracy_xgb}
+])
+```
+
+## Results
+
+All three models — Logistic Regression, Random Forest, and XGBoost — achieved an accuracy of approximately 33.33%, which equals random guessing for a balanced 3-class problem. This consistent result across models of varying complexity strongly suggests that the features used carry no predictive signal for burnout level.
+
+```{r}
+importance_df <- py$importance_df
+
+ggplot(importance_df, aes(x = reorder(feature, importance), y = importance)) +
+  geom_col(fill = "steelblue") +
+  coord_flip() +
+  theme_minimal() +
+  labs(title = "Feature Importance (Random Forest)",
+       x = NULL, y = "Importance")
+```
+
+```{r}
+results_df <- py$results_df
+
+ggplot(results_df, aes(x = reorder(model, accuracy), y = accuracy, fill = model)) +
+  geom_col(width = 0.5) +
+  geom_hline(yintercept = 0.333, linetype = "dashed", color = "red", linewidth = 0.8) +
+  annotate("text", x = 1, y = 0.345, label = "Random baseline (33.3%)", 
+           color = "red", size = 3.5) +
+  coord_flip() +
+  theme_minimal() +
+  labs(title = "Model Accuracy Comparison",
+       x = NULL, y = "Accuracy") +
+  scale_y_continuous(limits = c(0, 1)) +
+  theme(legend.position = "none")
+```
+
+## Conclusions
+
+The results of this analysis reveal that burnout level cannot be predicted from the available features. All three classifiers performed at chance level (\~33%), regardless of model complexity or feature scaling.
+
+Correlation analysis confirmed near-zero relationships between all features and the target variable. This is consistent with the synthetic origin of the dataset — burnout labels were assigned independently of feature values during generation.
+
+This finding serves as an important methodological reminder: a high usability score on Kaggle does not guarantee predictive utility. For real-world burnout prediction, longitudinal studies with clinically validated instruments would be required.
